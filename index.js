@@ -53,6 +53,11 @@ class MapMaker {
       (x % 2 == 1 && y % 2 == 1); // not a 'pillar'
     }
 
+    // function isNotStreet(x, y, cols, rows) {
+    //   return x < 0 || x >= cols || y < 0 || y >= rows || // in bounds
+    //   Math.random() > 0.88
+    // }
+
     this.tiles = this.createArray(this.cols, this.rows)
 
     for (var x = 0; x < this.cols; x++) {
@@ -86,8 +91,10 @@ class MapMaker {
             isPlaza = true;
           }
           //								if (this._isNotStreet(x,y)) tilePos = [1,3]
-          else if (isNotStreet(x,y-1)) tilePos = [18,2]; //[11,19];//
-          else if (isNotStreet(x-1,y)) tilePos = [19,3];//[11,19];
+          // else if (isNotStreet(x,y-1)) tilePos = [18,2]; //[11,19];//
+          // else if (isNotStreet(x-1,y)) tilePos = [19,3];//[11,19];
+          else if (this.tiles[x][y - 1].blocked) tilePos = [18,2];
+          else if (this.tiles[x - 1][y].blocked) tilePos = [19,3];
 
           else {
             //									tilePos = [12,19];
@@ -96,7 +103,7 @@ class MapMaker {
             //									else tilePos = [11,20];
           }
       }
-      this.tiles[x][y] = {tile: tilePos, traversable: !isPlaza}
+      this.tiles[x][y] = {tile: tilePos, blocked: isPlaza, x: x, y: y}
     }
   }
 
@@ -257,7 +264,6 @@ class Simulation {
     this.onResize = this.onResize.bind(this);
     this.isNotStreet = this.isNotStreet.bind(this);
     this.isStreet = this.isStreet.bind(this);
-    this.isIntersection = this.isIntersection.bind(this);
     this.getRandomPos = this.getRandomPos.bind(this);
   }
 
@@ -271,8 +277,8 @@ class Simulation {
     this.pixiLoaded = false;
     this.width = window.innerWidth;
     this.height = window.innerHeight;
-    this.width = 500
-    this.height = 200
+    // this.width = 500
+    // this.height = 200
 
     this.drivers = [];
 
@@ -348,6 +354,10 @@ class Simulation {
     // );
     // this.stage.addChild(cat);
 
+    const mm = new MapMaker(this.options.cols, this.options.rows, TILESIZE);
+
+    this.map = mm.generate();
+
     this.generateBackground();
 
     this.pixiLoaded = true;
@@ -390,10 +400,9 @@ class Simulation {
   generateBackground() {
     this.destroyBackground();
 
-    // const mm = new MapMaker(this.options.cols, this.options.rows, TILESIZE);
-    //
+
     // var map = mm.generate();
-    // console.log(map)
+    // console.log(map[0][0])
 
 
     const that = this;
@@ -418,68 +427,75 @@ class Simulation {
     // console.log(that.options.cols)
     // console.log(that.options.rows)
 
-    let bg = su.grid(that.options.cols, that.options.rows, TILESIZE, TILESIZE, true, 0,0,
-      function(x, y) {
-        let isPlaza = false;
-        let tilePos;
-
-        // corners
-        if (x == 0 && y == 0) tilePos = [20,2];
-        else if (x == 0 && y == that.options.rows-1) tilePos = [20,3];
-        else if (x == that.options.cols-1 && y == 0) tilePos = [21,2];
-        else if (x == that.options.cols-1 && y == that.options.rows-1) tilePos = [21,3];
-
-
-        // sides
-        else if ((x == 0 || x == that.options.cols-1) && y%2 == 1) tilePos = [19,3];
-        else if ((y == 0 || y == that.options.rows-1) && x%2 == 1) tilePos = [18,2];
-
-        else if (x == 0) tilePos = [22,2];
-        else if (x == that.options.cols-1) tilePos = [22,3];
-        else if (y == 0) tilePos = [23,3];
-        else if (y == that.options.rows-1) tilePos = [23,2];
-
-        // middle
-        else {
-          if (that.isNotStreet(x,y)) {
-            //									tilePos = [3 + rand(7),27];
-            //									tilePos = [1,27]; // grass
-            //									tilePos = [1,26]; // grass
-            //									tilePos = [9,27]; // dirt
-            //									tilePos = [11, 0]; // street
-            tilePos = [31, 1]; // street
-            isPlaza = true;
-          }
-          //								if (that._isNotStreet(x,y)) tilePos = [1,3]
-          else if (that.isNotStreet(x,y-1)) tilePos = [18,2]; //[11,19];//
-          else if (that.isNotStreet(x-1,y)) tilePos = [19,3];//[11,19];
-
-          else {
-            //									tilePos = [12,19];
-            tilePos = [18,3];
-            //									if (x%2 == 0 && y%2 == 0) tilePos = [11,19];
-            //									else tilePos = [11,20];
-          }
-
-        }
-
-        let sprite = getTile(tilePos[0], tilePos[1]);
-
-
-        if (isPlaza) {
-          plazas.push(sprite);
-        }
-
-
-        sprite.alpha = 0.7;
-
-
-        return sprite;
-
-      });
+    // let bg = su.grid(that.options.cols, that.options.rows, TILESIZE, TILESIZE, true, 0,0,
+    //   function(x, y) {
+    //     let isPlaza = false;
+    //     let tilePos;
+    //
+    //     // corners
+    //     if (x == 0 && y == 0) tilePos = [20,2];
+    //     else if (x == 0 && y == that.options.rows-1) tilePos = [20,3];
+    //     else if (x == that.options.cols-1 && y == 0) tilePos = [21,2];
+    //     else if (x == that.options.cols-1 && y == that.options.rows-1) tilePos = [21,3];
+    //
+    //
+    //     // sides
+    //     else if ((x == 0 || x == that.options.cols-1) && y%2 == 1) tilePos = [19,3];
+    //     else if ((y == 0 || y == that.options.rows-1) && x%2 == 1) tilePos = [18,2];
+    //
+    //     else if (x == 0) tilePos = [22,2];
+    //     else if (x == that.options.cols-1) tilePos = [22,3];
+    //     else if (y == 0) tilePos = [23,3];
+    //     else if (y == that.options.rows-1) tilePos = [23,2];
+    //
+    //     // middle
+    //     else {
+    //       if (that.isNotStreet(x,y)) {
+    //         //									tilePos = [3 + rand(7),27];
+    //         //									tilePos = [1,27]; // grass
+    //         //									tilePos = [1,26]; // grass
+    //         //									tilePos = [9,27]; // dirt
+    //         //									tilePos = [11, 0]; // street
+    //         tilePos = [31, 1]; // street
+    //         isPlaza = true;
+    //       }
+    //       //								if (that._isNotStreet(x,y)) tilePos = [1,3]
+    //       else if (that.isNotStreet(x,y-1)) tilePos = [18,2]; //[11,19];//
+    //       else if (that.isNotStreet(x-1,y)) tilePos = [19,3];//[11,19];
+    //
+    //       else {
+    //         //									tilePos = [12,19];
+    //         tilePos = [18,3];
+    //         //									if (x%2 == 0 && y%2 == 0) tilePos = [11,19];
+    //         //									else tilePos = [11,20];
+    //       }
+    //
+    //     }
+    //
+    //     let sprite = getTile(tilePos[0], tilePos[1]);
+    //
+    //
+    //     if (isPlaza) {
+    //       plazas.push(sprite);
+    //     }
+    //
+    //
+    //     sprite.alpha = 0.7;
+    //
+    //
+    //     return sprite;
+    //
+    //   });
 
       // console.log(bg.children[0].x)
 
+    let bg = su.grid(that.options.cols, that.options.rows, TILESIZE, TILESIZE, true, 0,0,
+      function(x, y) {
+        const t = that.map[x][y];
+        let sprite = getTile(t.tile[0], t.tile[1])
+        sprite.alpha = 0.7
+        return sprite;
+      });
       this.stage.addChildAt(bg, 0);
 
       // console.log(plazas.length)
@@ -508,15 +524,11 @@ class Simulation {
 
   isNotStreet(x, y) {
     return x < 0 || x >= this.options.cols || y < 0 || y >= this.options.rows || // in bounds
-    (x % 2 == 1 && y % 2 == 1); // not a 'pillar'
+    this.map[x][y].blocked; // not a 'pillar'
   }
 
   isStreet(x, y) {
     return !(this.isNotStreet(x,y));
-  }
-
-  isIntersection(x, y) {
-    return x % 2 == 0 && y % 2 == 0;
   }
 
   generateAgent() {
