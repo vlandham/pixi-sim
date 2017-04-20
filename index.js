@@ -1,5 +1,9 @@
 const su = new SpriteUtilities(PIXI);
 
+const b = new Bump(PIXI);
+
+let currentId = 1;
+
 const TILESIZE = 16;
 
 let rand = function(i) {
@@ -42,6 +46,12 @@ class MapMaker {
     }
 
     return arr;
+  }
+
+  toGrid(tiles) {
+    return tiles.map(function(row) {
+      return row.map((d) => d.blocked ? 1 : 0)
+    })
   }
 
 
@@ -112,28 +122,75 @@ class MapMaker {
   }
 }
 
+class GrassMap extends MapMaker {
+  constructor(cols, rows, tilesize) {
+    super(cols, rows, tilesize);
+  }
+
+  generate() {
+    var grassTiles = [[0, 24], [1, 24], [13, 27], [19,27]]
+    this.tiles = this.createArray(this.cols, this.rows);
+    for (var x = 0; x < this.cols; x++) {
+      for (var y = 0; y < this.rows; y++) {
+
+        let tilePos = null;
+        let isRock = false;
+        if (x == 0 && y == 0) tilePos = [0, 25];
+        else if (x == 0 && y == this.rows-1) tilePos = [0,27];
+        else if (x == this.cols-1 && y == 0) tilePos = [2,25];
+        else if (x == this.cols-1 && y == this.rows-1) tilePos = [2,27];
+
+
+        // sides
+        else if (x == 0) tilePos = [0,26];
+        else if (x == this.cols-1) tilePos = [2,26];
+        else if (x == 0 ) tilePos = [1,25];
+        else if (y == this.rows-1) tilePos = [1,27];
+        else if (y == 0) tilePos = [1, 25];
+        else {
+          tilePos = grassTiles[rand(grassTiles.length)]
+          isRock = Math.random() > 0.85
+        }
+
+        this.tiles[x][y] = {tile: tilePos, blocked: isRock, x: x, y: y}
+      }
+    }
+    return this.tiles;
+  }
+}
+
+var agent_colors = ['blue', 'green', 'red', 'white']
+var agent_hair = ['black', 'blonde', 'brown']
 
 class Agent {
-  constructor(street, container) {
+  constructor(simulation, container) {
     this.moveCloser = this.moveCloser.bind(this);
+    this.update = this.update.bind(this);
+    this.updateDestination = this.updateDestination.bind(this);
 
     this.active = true;
-    this.street = street;
+    this.simulation = simulation;
     this.container = container;
     this.sprite = null;
     this.kill = false;
     this.killing = false;
     this.killtime = 0;
 
+    this.id = currentId;
+    currentId += 1;
+
     this.lastLoc = { x: -1, y: -1 };
     this.lastLoc2 = { x:-1, y:-1 };
 
-    this.parked = false;
-    this.loc = street.getRandomPos();
-    this.ping = street.getRandomPos();
+    this.waitTimer = 0;
+    this.loc = simulation.getRandomPos();
+    this.ping = simulation.getRandomPos();
+    this.updateDestination();
+    this.amount = 10;
+    this.alphaScale = d3.scaleLinear().domain([0,3]).range([1,0]);
     // this.ping = { x: 100, y: 100 };
 
-    if (street.isStreet(this.loc.x+1, this.loc.y) || street.isStreet(this.loc.x - 1, this.loc.y)) {
+    if (simulation.isStreet(this.loc.x+1, this.loc.y) || simulation.isStreet(this.loc.x - 1, this.loc.y)) {
     //if (true) {
       this.facing = ['W','E'][rand(1)];
     }
@@ -141,12 +198,15 @@ class Agent {
       this.facing = ['N','S'][rand(1)];
     }
 
-    this.carType = rand(5) + 1;
-    this.sprite = su.sprite(PACK['car_yellow_small_'+this.carType+'.png']);
+
+    this.hair = agent_hair[rand(agent_hair.length)];
+    this.color = agent_colors[rand(agent_colors.length)];
+
+    this.sprite = su.sprite(PACK['character_' + this.hair + '_' + this.color + '.png']);
     this.sprite.anchor.x = 0.5;
     this.sprite.anchor.y = 0.5;
     //this.sprite.tint = 0xFF0000; // new car
-    this.sprite.scale.set(0.25);
+    this.sprite.scale.set(0.5);
 
     this.container.addChild(this.sprite);
 
@@ -174,12 +234,125 @@ class Agent {
     return this.lastLoc2.x == x && this.lastLoc2.y == y;
   }
 
+  waiting() {
+    return this.waitTimer > 0 || this.killing;
+  }
+
+  updateWait() {
+    this.waitTimer = this.waitTimer - 1;
+    this.waitTimer = Math.max(this.waitTimer, 0);
+    this.amount += this.waitTimer;
+  }
+
+  updateKilling() {
+    this.killtime += 1;
+    this.sprite.alpha = this.alphaScale(this.killtime);
+    if (this.killtime >= 6) {
+      this.kill = true; // to remove from list
+      su.remove(this.sprite);
+      this.sprite.destroy();
+    }
+
+
+  }
+
+  startWait(newWaitTimer) {
+    this.waitTimer = newWaitTimer;
+  }
+
+  updateDestination(newDest) {
+    // this.target = this.simulation.getRandomResource()
+    // this.ping = {x: this.target.posX - 1, y: this.target.posY - 1};
+    this.ping = this.simulation.getRandomPos();
+    var gridClone = this.simulation.grid.clone();
+    this.path = this.simulation.finder.findPath(this.loc.y, this.loc.x, this.ping.y, this.ping.x, gridClone);
+    this.pathIndex = 0;
+  }
+
+  updateHits() {
+    if (this.color !== 'red') {
+      const reds = this.simulation.drivers.filter((d) => !d.kill && d.color === 'red');
+
+      reds.forEach((r) => {
+        if (b.hit(this.sprite, r.sprite)) {
+          this.amount = this.amount - 5;
+          r.amount = r.amount + 5;
+        }
+      })
+    }
+
+    if (this.color !== 'green') {
+      const greens = this.simulation.drivers.filter((d) => !d.kill && d.color === 'green');
+
+      greens.forEach((r) => {
+        if (b.hit(this.sprite, r.sprite)) {
+          if (r.amount >= 5) {
+            this.amount = this.amount + 5;
+            r.amount -= 5;
+          }
+        }
+      })
+    }
+
+    if (this.amount <= 0) {
+      this.killing = true;
+      console.log('DEAD')
+    }
+
+  }
+
+  update() {
+    if (!this.kill) {
+      this.updateHits()
+    }
+    if(this.killing) {
+      this.updateKilling();
+    } else if (this.waiting()) {
+      this.updateWait();
+
+    } else {
+      if(sameLoc(this.ping, this.loc)) {
+        this.updateDestination();
+        this.startWait(10)
+      }
+      this.moveCloser(this.ping)
+    }
+  }
+
   moveCloser(you) {
+    if(this.path && this.path[this.pathIndex]) {
+      var x = this.path[this.pathIndex][1]
+      var y = this.path[this.pathIndex][0]
+      this.loc.x = x;
+      this.loc.y = y;
+
+    } else {
+      console.log('ERROR - no path');
+      this.updateDestination();
+    }
+
+    //
+    if (y > this.lastLoc.y) { this.facing = 'N'}
+    else if (y < this.lastLoc.y) { this.facing = 'S'}
+    else if (x < this.lastLoc.x) { this.facing = 'E' }
+    else if (x > this.lastLoc.x) { this.facing = 'W' }
+
+
+    // history
+    this.lastLoc2.x = this.lastLoc.x;
+    this.lastLoc2.y = this.lastLoc.y;
+    this.lastLoc.x = this.loc.x;
+    this.lastLoc.y = this.loc.y;
+
+    // increase pathIndex
+    this.pathIndex = Math.min(this.pathIndex + 1, this.path.length);
+  }
+
+  moveCloser2(you) {
     // let you = this.ping;
     let x = this.loc.x;
     let y = this.loc.y;
-    let isStreet = this.street.isStreet;
-
+    let isStreet = this.simulation.isStreet;
 
 
     // bias toward continuing north to prevent snaking.
@@ -206,7 +379,6 @@ class Agent {
     this.lastLoc2.y = this.lastLoc.y;
     this.lastLoc.x = this.loc.x;
     this.lastLoc.y = this.loc.y;
-
   }
 
   render() {
@@ -240,7 +412,7 @@ const SIMDEFAULTS = {
   driversPark: true,
 
   canvasAlign: 'left',
-  numDrivers: 10,
+  numDrivers: 50,
   paxChance: 0.4,
   paxPer: 1, // generated per chance
   surgePaxRedux: 0.3,
@@ -277,6 +449,7 @@ class Simulation {
     this.pixiLoaded = false;
     this.width = window.innerWidth;
     this.height = window.innerHeight;
+    this.iteration = 0;
     // this.width = 500
     // this.height = 200
 
@@ -303,13 +476,16 @@ class Simulation {
   initPixi() {
 
     this.renderer = PIXI.autoDetectRenderer(512, 256);
+    // this.renderer.backgroundColor = 0xFFFFFF;
     this.renderer.plugins.interaction.autoPreventDefault = false;
 
 
 
-    document.body.appendChild(this.renderer.view);
+    document.getElementById('sim').appendChild(this.renderer.view)
+    //document.body.appendChild(this.renderer.view);
 
     this.stage = new PIXI.Container();
+
 
     this.engine = new Smoothie({
       engine: PIXI,
@@ -354,9 +530,14 @@ class Simulation {
     // );
     // this.stage.addChild(cat);
 
-    const mm = new MapMaker(this.options.cols, this.options.rows, TILESIZE);
+    const mm = new GrassMap(this.options.cols, this.options.rows, TILESIZE);
 
     this.map = mm.generate();
+    this.grid = new PF.Grid(mm.toGrid(this.map));
+    console.log(this.grid)
+    this.finder = new PF.AStarFinder();
+
+
 
     this.generateBackground();
 
@@ -371,7 +552,7 @@ class Simulation {
   }
 
   onResize() {
-    this.renderer.view.style.position = "absolute";
+    // this.renderer.view.style.position = "absolute";
     this.renderer.view.style.display = "block";
     this.renderer.autoResize = true;
 
@@ -379,6 +560,10 @@ class Simulation {
     this.engine.renderer.view.style.width = (ratio *  this.width - (TILESIZE * this.options.resolution)) + 'px';
     this.engine.renderer.view.style.height = (ratio *  this.height - (TILESIZE * this.options.resolution)) + 'px';
     this.renderer.resize(this.width, this.height);
+  }
+
+  onEnd() {
+    window.location.reload();
   }
 
   destroyBackground() {
@@ -400,11 +585,6 @@ class Simulation {
   generateBackground() {
     this.destroyBackground();
 
-
-    // var map = mm.generate();
-    // console.log(map[0][0])
-
-
     const that = this;
     console.log('background')
 
@@ -423,72 +603,6 @@ class Simulation {
       return sprite;
     };
 
-
-    // console.log(that.options.cols)
-    // console.log(that.options.rows)
-
-    // let bg = su.grid(that.options.cols, that.options.rows, TILESIZE, TILESIZE, true, 0,0,
-    //   function(x, y) {
-    //     let isPlaza = false;
-    //     let tilePos;
-    //
-    //     // corners
-    //     if (x == 0 && y == 0) tilePos = [20,2];
-    //     else if (x == 0 && y == that.options.rows-1) tilePos = [20,3];
-    //     else if (x == that.options.cols-1 && y == 0) tilePos = [21,2];
-    //     else if (x == that.options.cols-1 && y == that.options.rows-1) tilePos = [21,3];
-    //
-    //
-    //     // sides
-    //     else if ((x == 0 || x == that.options.cols-1) && y%2 == 1) tilePos = [19,3];
-    //     else if ((y == 0 || y == that.options.rows-1) && x%2 == 1) tilePos = [18,2];
-    //
-    //     else if (x == 0) tilePos = [22,2];
-    //     else if (x == that.options.cols-1) tilePos = [22,3];
-    //     else if (y == 0) tilePos = [23,3];
-    //     else if (y == that.options.rows-1) tilePos = [23,2];
-    //
-    //     // middle
-    //     else {
-    //       if (that.isNotStreet(x,y)) {
-    //         //									tilePos = [3 + rand(7),27];
-    //         //									tilePos = [1,27]; // grass
-    //         //									tilePos = [1,26]; // grass
-    //         //									tilePos = [9,27]; // dirt
-    //         //									tilePos = [11, 0]; // street
-    //         tilePos = [31, 1]; // street
-    //         isPlaza = true;
-    //       }
-    //       //								if (that._isNotStreet(x,y)) tilePos = [1,3]
-    //       else if (that.isNotStreet(x,y-1)) tilePos = [18,2]; //[11,19];//
-    //       else if (that.isNotStreet(x-1,y)) tilePos = [19,3];//[11,19];
-    //
-    //       else {
-    //         //									tilePos = [12,19];
-    //         tilePos = [18,3];
-    //         //									if (x%2 == 0 && y%2 == 0) tilePos = [11,19];
-    //         //									else tilePos = [11,20];
-    //       }
-    //
-    //     }
-    //
-    //     let sprite = getTile(tilePos[0], tilePos[1]);
-    //
-    //
-    //     if (isPlaza) {
-    //       plazas.push(sprite);
-    //     }
-    //
-    //
-    //     sprite.alpha = 0.7;
-    //
-    //
-    //     return sprite;
-    //
-    //   });
-
-      // console.log(bg.children[0].x)
-
     let bg = su.grid(that.options.cols, that.options.rows, TILESIZE, TILESIZE, true, 0,0,
       function(x, y) {
         const t = that.map[x][y];
@@ -497,14 +611,28 @@ class Simulation {
         return sprite;
       });
       this.stage.addChildAt(bg, 0);
-
-      // console.log(plazas.length)
-
+      this.bg = bg;
 
       this.fg = su.group();
+      for (var x = 0; x < this.map.length; x++) {
+        for (var y = 0; y < this.map[0].length; y++) {
+          if (this.map[x][y].blocked) {
+            let rock = getTile(33, 3);
+            rock.x = x * TILESIZE;
+            rock.y = y * TILESIZE;
+            rock.posX = x;
+            rock.posY = y;
+            // rock.scale.set(0.8);
+            this.fg.addChild(rock)
+          }
+        }
+      }
       this.stage.addChild(this.fg);
+      console.log(this.fg.children[0])
+  }
 
-      this.bg = bg;
+  getRandomResource() {
+    return this.fg.children[rand(this.fg.children.length)];
   }
 
   getRandomPos() {
@@ -516,8 +644,6 @@ class Simulation {
       pos.x = Math.floor(this.options.cols * Math.random());
       pos.y = Math.floor(this.options.rows * Math.random());
     } while (limit && this.isNotStreet(pos.x, pos.y));
-
-    // console.log(pos)
 
     return pos;
   }
@@ -537,21 +663,66 @@ class Simulation {
     this.totalDrivers++;
   }
 
+  updateChart() {
+    const alive = this.drivers.filter((d) => !d.kill).sort((a, b) => b.amount - a.amount);
+    const vis = d3.select('#vis')
+    let actors = vis.selectAll('.actor')
+      .data(alive, (d) => d.id)
+
+    let actorsE = actors.enter()
+      .append('g')
+      .classed('actor', true)
+
+    actorsE.append('rect')
+    actorsE.append('text')
+
+    actors.exit().remove();
+
+    actors = actors.merge(actorsE)
+      // .attr('x', 10)
+    actors.selectAll('text')
+      .text((d) => d.amount)
+      .attr('fill', 'white')
+      .attr('x', '60')
+      .attr('dy', 14)
+
+    actors.selectAll('rect')
+      .attr('fill', (d) => d.color)
+      .attr('width', 50)
+      .attr('height', 20)
+
+    actors.transition()
+      .duration(500)
+      .attr('transform', (d, i) => `translate(${10}, ${((i * 20) + 10)})`)
+
+  }
+
   update() {
-    this.drivers.forEach((d) => {
-      if(sameLoc(d.ping, d.loc)) {
-        d.ping = this.getRandomPos();
-      }
-      d.moveCloser(d.ping)
+    this.drivers.filter((d) => !d.kill).forEach((d) => {
+      d.update();
     })
     this.render();
+
+    if(this.drivers.length > 0 && this.iteration % 20 === 0) {
+      const remaining = this.drivers.filter((d) => !d.kill && !(d.color === 'red'))
+      console.log(remaining.length)
+      if (remaining.length === 0) {
+        this.onEnd();
+      }
+    }
+
+    if (this.iteration % 10 === 0) {
+      this.updateChart();
+    }
+
+    this.iteration += 1;
   }
 
 
   render() {
     if (!this.pixiLoaded) return;
 
-    this.drivers.forEach((d) => d.render());
+    this.drivers.filter((d) => !d.kill).forEach((d) => d.render());
   }
 }
 

@@ -5,10 +5,19 @@
   <title>Hello World</title>
   <style>* {padding: 0; margin: 0}</style>
 </head>
+  <link rel="stylesheet" type="text/css" href="css/style.css" media="screen" />
+  <script src="lib/d3.js"></script>
+  <script src="lib/lodash.core.js"></script>
   <script src="lib/pixi.js"></script>
   <script src="lib/spriteUtilities.js"></script>
   <script src="lib/smoothie.js"></script>
+  <script src="lib/bump.js"></script>
+  <script src="lib/pathfinding-browser.js"></script>
 <body>
+  <div id="container">
+    <div id="sim"></div>
+    <svg id="vis"></svg>
+  </div>
   <script src="index.js"></script>
 </body>
 </html>
