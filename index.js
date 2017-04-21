@@ -5,6 +5,9 @@ const b = new Bump(PIXI);
 let currentId = 1;
 
 const TILESIZE = 16;
+var AGENT_COLORS = ['blue', 'green', 'red', 'white']
+var AGENT_HAIR = ['black', 'blonde', 'brown']
+var AGENT_COLOR_DISPLAY = {blue:'#3C8BE8', green:'#18CB16', red:'#D72300', white:'white'}
 
 let rand = function(i) {
   return Math.floor(Math.random()*i);
@@ -128,7 +131,7 @@ class GrassMap extends MapMaker {
   }
 
   generate() {
-    var grassTiles = [[0, 24], [1, 24], [13, 27], [19,27]]
+    var grassTiles = [[0, 24], [1, 24], [19,27]]
     this.tiles = this.createArray(this.cols, this.rows);
     for (var x = 0; x < this.cols; x++) {
       for (var y = 0; y < this.rows; y++) {
@@ -159,8 +162,6 @@ class GrassMap extends MapMaker {
   }
 }
 
-var agent_colors = ['blue', 'green', 'red', 'white']
-var agent_hair = ['black', 'blonde', 'brown']
 
 class Agent {
   constructor(simulation, container) {
@@ -175,6 +176,8 @@ class Agent {
     this.kill = false;
     this.killing = false;
     this.killtime = 0;
+
+    this.name = NAMES[rand(NAMES.length)];
 
     this.id = currentId;
     currentId += 1;
@@ -199,13 +202,12 @@ class Agent {
     }
 
 
-    this.hair = agent_hair[rand(agent_hair.length)];
-    this.color = agent_colors[rand(agent_colors.length)];
+    this.hair = AGENT_HAIR[rand(AGENT_HAIR.length)];
+    this.color = AGENT_COLORS[rand(AGENT_COLORS.length)];
 
     this.sprite = su.sprite(PACK['character_' + this.hair + '_' + this.color + '.png']);
     this.sprite.anchor.x = 0.5;
     this.sprite.anchor.y = 0.5;
-    //this.sprite.tint = 0xFF0000; // new car
     this.sprite.scale.set(0.5);
 
     this.container.addChild(this.sprite);
@@ -241,7 +243,9 @@ class Agent {
   updateWait() {
     this.waitTimer = this.waitTimer - 1;
     this.waitTimer = Math.max(this.waitTimer, 0);
-    this.amount += this.waitTimer;
+    if (this.color !== 'red') {
+      this.amount += this.waitTimer;
+    }
   }
 
   updateKilling() {
@@ -252,8 +256,6 @@ class Agent {
       su.remove(this.sprite);
       this.sprite.destroy();
     }
-
-
   }
 
   startWait(newWaitTimer) {
@@ -270,13 +272,16 @@ class Agent {
   }
 
   updateHits() {
+    let shaking = false;
     if (this.color !== 'red') {
       const reds = this.simulation.drivers.filter((d) => !d.kill && d.color === 'red');
 
       reds.forEach((r) => {
         if (b.hit(this.sprite, r.sprite)) {
-          this.amount = this.amount - 5;
-          r.amount = r.amount + 5;
+          var stealAmount = Math.max(Math.round(this.amount / 2), 5);
+          this.amount = this.amount - stealAmount;
+          r.amount = r.amount + stealAmount;
+          shaking = true;
         }
       })
     }
@@ -297,6 +302,13 @@ class Agent {
     if (this.amount <= 0) {
       this.killing = true;
       console.log('DEAD')
+    }
+
+    if(shaking) {
+      this.sprite.tint = 0xF47611;
+    } else {
+
+      this.sprite.tint = '0xFFFFFF';
     }
 
   }
@@ -437,6 +449,7 @@ class Simulation {
     this.isNotStreet = this.isNotStreet.bind(this);
     this.isStreet = this.isStreet.bind(this);
     this.getRandomPos = this.getRandomPos.bind(this);
+
   }
 
   init() {
@@ -450,6 +463,7 @@ class Simulation {
     this.width = window.innerWidth;
     this.height = window.innerHeight;
     this.iteration = 0;
+    this.endIteration = 0;
     // this.width = 500
     // this.height = 200
 
@@ -458,6 +472,18 @@ class Simulation {
     this.initDimensions();
 
     this.initPixi();
+    this.initChart();
+  }
+
+  initChart() {
+    d3.select('#vis').append('text')
+      .attr('x', 20)
+      .attr('y', 40)
+      .attr('class', 'title')
+      .text('Amounts')
+    d3.select('#vis').append('g')
+      .attr('transform', 'translate(10, 40)')
+      .attr('id', 'amounts')
   }
 
   initDimensions() {
@@ -478,8 +504,6 @@ class Simulation {
     this.renderer = PIXI.autoDetectRenderer(512, 256);
     // this.renderer.backgroundColor = 0xFFFFFF;
     this.renderer.plugins.interaction.autoPreventDefault = false;
-
-
 
     document.getElementById('sim').appendChild(this.renderer.view)
     //document.body.appendChild(this.renderer.view);
@@ -536,8 +560,6 @@ class Simulation {
     this.grid = new PF.Grid(mm.toGrid(this.map));
     console.log(this.grid)
     this.finder = new PF.AStarFinder();
-
-
 
     this.generateBackground();
 
@@ -613,15 +635,20 @@ class Simulation {
       this.stage.addChildAt(bg, 0);
       this.bg = bg;
 
+      const rockTiles = [[33, 3], [14, 18], [13, 18], [32, 13], [33, 13]]
+
       this.fg = su.group();
       for (var x = 0; x < this.map.length; x++) {
         for (var y = 0; y < this.map[0].length; y++) {
           if (this.map[x][y].blocked) {
-            let rock = getTile(33, 3);
+            let rockTile = rockTiles[rand(rockTiles.length)]
+            let rock = getTile(rockTile[0], rockTile[1]);
             rock.x = x * TILESIZE;
             rock.y = y * TILESIZE;
             rock.posX = x;
             rock.posY = y;
+            rock.alpha = 1.0;
+            rock.tint = 0xFFFFFF;
             // rock.scale.set(0.8);
             this.fg.addChild(rock)
           }
@@ -665,7 +692,7 @@ class Simulation {
 
   updateChart() {
     const alive = this.drivers.filter((d) => !d.kill).sort((a, b) => b.amount - a.amount);
-    const vis = d3.select('#vis')
+    const vis = d3.select('#vis').select('#amounts')
     let actors = vis.selectAll('.actor')
       .data(alive, (d) => d.id)
 
@@ -673,27 +700,36 @@ class Simulation {
       .append('g')
       .classed('actor', true)
 
-    actorsE.append('rect')
+    actorsE.append('rect');
     actorsE.append('text')
+      .classed('amount', true)
+    actorsE.append('text')
+      .classed('name', true)
 
     actors.exit().remove();
 
     actors = actors.merge(actorsE)
       // .attr('x', 10)
-    actors.selectAll('text')
+    actors.selectAll('.amount')
       .text((d) => d.amount)
       .attr('fill', 'white')
       .attr('x', '60')
       .attr('dy', 14)
 
+    actors.selectAll('.name')
+      .text((d) => d.name.first_name + ' ' + d.name.last_name)
+      .attr('fill', 'white')
+      .attr('x', '100')
+      .attr('dy', 14)
+
     actors.selectAll('rect')
-      .attr('fill', (d) => d.color)
+      .attr('fill', (d) => AGENT_COLOR_DISPLAY[d.color])
       .attr('width', 50)
       .attr('height', 20)
 
     actors.transition()
       .duration(500)
-      .attr('transform', (d, i) => `translate(${10}, ${((i * 20) + 10)})`)
+      .attr('transform', (d, i) => `translate(${10}, ${((i * 25) + 14)})`)
 
   }
 
@@ -705,16 +741,27 @@ class Simulation {
 
     if(this.drivers.length > 0 && this.iteration % 20 === 0) {
       const remaining = this.drivers.filter((d) => !d.kill && !(d.color === 'red'))
-      console.log(remaining.length)
-      if (remaining.length === 0) {
+      const remainingSum = d3.sum(remaining, (d) => d.amount)
+      const reds = this.drivers.filter((d) => !d.kill && (d.color === 'red'))
+      const redsSum = d3.sum(reds, (d) => d.amount)
+      if (remainingSum * 2 < redsSum) {
+        this.endIteration += 1;
+      }
+
+      if (this.endIteration > 0) {
+        this.bg.alpha = 1 / this.endIteration;
+        console.log(this.endIteration)
+      }
+
+      if(this.endIteration > 4) {
         this.onEnd();
       }
     }
 
-    if (this.iteration % 10 === 0) {
+    if (this.iteration % 4 === 0) {
       this.updateChart();
     }
-
+    su.update();
     this.iteration += 1;
   }
 
@@ -723,6 +770,7 @@ class Simulation {
     if (!this.pixiLoaded) return;
 
     this.drivers.filter((d) => !d.kill).forEach((d) => d.render());
+
   }
 }
 
