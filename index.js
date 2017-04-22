@@ -1,3 +1,8 @@
+// count: number of people
+// winby: multiple of red amount they need to win by
+// amount: starting amount
+// steal: either 'half' or a number. amount red steals
+
 const su = new SpriteUtilities(PIXI);
 
 const b = new Bump(PIXI);
@@ -8,6 +13,27 @@ const TILESIZE = 16;
 var AGENT_COLORS = ['blue', 'green', 'red', 'white']
 var AGENT_HAIR = ['black', 'blonde', 'brown']
 var AGENT_COLOR_DISPLAY = {blue:'#3C8BE8', green:'#18CB16', red:'#D72300', white:'white'}
+
+function getJsonFromUrl() {
+  var query = location.search.substr(1);
+  var result = {};
+  query.split("&").forEach(function(part) {
+    var item = part.split("=");
+    result[item[0]] = decodeURIComponent(item[1]);
+  });
+  return result;
+}
+
+const PARAMS = getJsonFromUrl();
+// console.log(PARAMS);
+
+const CONSTS = {
+  count: +PARAMS.count || 50,
+  winby: +PARAMS.winby || 2,
+  amount: +PARAMS.amount || 10,
+  steal: PARAMS.steal || 'half'
+}
+console.log(CONSTS);
 
 let rand = function(i) {
   return Math.floor(Math.random()*i);
@@ -189,7 +215,7 @@ class Agent {
     this.loc = simulation.getRandomPos();
     this.ping = simulation.getRandomPos();
     this.updateDestination();
-    this.amount = 10;
+    this.amount = CONSTS.amount;
     this.alphaScale = d3.scaleLinear().domain([0,3]).range([1,0]);
     // this.ping = { x: 100, y: 100 };
 
@@ -278,7 +304,12 @@ class Agent {
 
       reds.forEach((r) => {
         if (b.hit(this.sprite, r.sprite)) {
-          var stealAmount = Math.max(Math.round(this.amount / 2), 5);
+          var stealAmount = 5
+          if (CONSTS.steal === 'half') {
+            stealAmount = Math.max(Math.round(this.amount / 2), 5);
+          } else {
+            stealAmount = this.amount >= +CONSTS.steal ? +CONSTS.steal : this.amount
+          }
           this.amount = this.amount - stealAmount;
           r.amount = r.amount + stealAmount;
           shaking = true;
@@ -412,30 +443,14 @@ class Agent {
 const SIMDEFAULTS = {
 
   fps: 5,
-
-  farePerMin: 1.0,
-  costPerMin:0.10,
-  bookingFee:1.50,
-  surgeMult: 2,
-  companyShare: 0.2,
-
   autoScaling: true,
 
-  driversPark: true,
-
-  canvasAlign: 'left',
-  numDrivers: 50,
-  paxChance: 0.4,
-  paxPer: 1, // generated per chance
-  surgePaxRedux: 0.3,
+  numDrivers: CONSTS.count,
+  winby: CONSTS.winby,
 
   rows: "auto", // number of car rows
   cols: "auto", // number of car rows
-  minWage: 0,
   resolution: 1, // scaling
-  slowDispatch: false, // exponential scaling!
-  buttonSetup: null,
-  paxWait: 10,
   maxDrivers: 999,
 }
 
@@ -708,8 +723,8 @@ class Simulation {
 
     actors.exit().remove();
 
-    actors = actors.merge(actorsE)
-      // .attr('x', 10)
+    actors = actors.merge(actorsE);
+
     actors.selectAll('.amount')
       .text((d) => d.amount)
       .attr('fill', 'white')
@@ -744,7 +759,7 @@ class Simulation {
       const remainingSum = d3.sum(remaining, (d) => d.amount)
       const reds = this.drivers.filter((d) => !d.kill && (d.color === 'red'))
       const redsSum = d3.sum(reds, (d) => d.amount)
-      if (remainingSum * 2 < redsSum) {
+      if ((remainingSum * this.options.winby) < redsSum) {
         this.endIteration += 1;
       }
 
